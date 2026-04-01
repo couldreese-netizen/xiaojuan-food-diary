@@ -60,13 +60,11 @@ def save_avatar(uploaded_file, user_id):
     if not os.path.exists("avatars"):
         os.makedirs("avatars")
     
-    # 打开图片
     img = Image.open(uploaded_file)
     
     # 裁剪为正方形（取中心区域）
     width, height = img.size
     if width != height:
-        # 取较小的边作为正方形边长
         size = min(width, height)
         left = (width - size) // 2
         top = (height - size) // 2
@@ -75,7 +73,6 @@ def save_avatar(uploaded_file, user_id):
     # 调整大小为200x200
     img = img.resize((200, 200), Image.Resampling.LANCZOS)
     
-    # 保存
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"user_{user_id}_{timestamp}.jpg"
     filepath = os.path.join("avatars", filename)
@@ -100,15 +97,12 @@ def save_image(uploaded_file, user_id, restaurant_name):
     return filepath
 
 def generate_invite_code(username):
-    """根据用户名生成邀请码：用户名拼音（取前6个字母）+ 随机4位数字"""
+    """根据用户名生成邀请码"""
     import random
     import string
     
-    # 取用户名前6个字母（或全部）
     username_clean = re.sub(r'[^a-zA-Z]', '', username)
     prefix = username_clean[:6].upper() if username_clean else "USER"
-    
-    # 随机4位数字
     suffix = ''.join(random.choices(string.digits, k=4))
     
     return f"{prefix}{suffix}"
@@ -121,7 +115,7 @@ def check_username_exists(data, username):
     return False
 
 def check_invite_code_valid(data, invite_code):
-    """检查邀请码是否有效（邀请码属于某个用户）"""
+    """检查邀请码是否有效"""
     for u in data["users"]:
         if u["invite_code"] == invite_code:
             return u
@@ -240,7 +234,6 @@ if not st.session_state.logged_in:
         st.markdown("### 好朋友才知道的宝藏小店")
         st.caption("🐯 和小卷一起，记录每一顿美好的饭！")
     
-    # 创建两个标签页：登录 和 注册
     tab1, tab2 = st.tabs(["🔐 登录", "🎉 注册新账号"])
     
     with tab1:
@@ -270,20 +263,16 @@ if not st.session_state.logged_in:
         st.markdown("### 🎉 注册新账号")
         st.caption("需要朋友的邀请码才能加入哦~")
         
-        # 朋友邀请码
         friend_code = st.text_input("朋友的邀请码", placeholder="输入朋友的邀请码", key="friend_code")
         
-        # 新用户信息
         new_username = st.text_input("用户名（登录用）", placeholder="英文或数字，例如：xiaoming", key="reg_username")
         new_nickname = st.text_input("昵称（显示用）", placeholder="例如：爱吃的小明", key="reg_nickname")
         new_bio = st.text_area("一句话介绍自己", placeholder="介绍一下自己吧~", key="reg_bio", height=80)
         
-        # 头像上传
         st.markdown("**📸 上传头像（1:1正方形，会自动裁剪）**")
         new_avatar = st.file_uploader("点击上传头像", type=["jpg", "jpeg", "png"], key="reg_avatar")
         
         if new_avatar:
-            # 预览（显示裁剪后的效果）
             preview_img = Image.open(new_avatar)
             st.image(preview_img, width=100)
             st.caption("上传后会自动裁剪为正方形")
@@ -298,25 +287,19 @@ if not st.session_state.logged_in:
             else:
                 data = load_data()
                 
-                # 验证邀请码
                 inviter = check_invite_code_valid(data, friend_code)
                 if not inviter:
                     st.error("邀请码无效，问朋友要一个正确的吧~")
                 elif check_username_exists(data, new_username):
                     st.error("用户名已被使用，换一个吧~")
                 else:
-                    # 生成新用户ID
                     new_id = max([u["id"] for u in data["users"]], default=0) + 1
-                    
-                    # 生成邀请码
                     new_invite_code = generate_invite_code(new_username)
                     
-                    # 保存头像
                     avatar_path = None
                     if new_avatar:
                         avatar_path = save_avatar(new_avatar, new_id)
                     
-                    # 创建新用户
                     new_user = {
                         "id": new_id,
                         "username": new_username.lower(),
@@ -327,7 +310,6 @@ if not st.session_state.logged_in:
                         "bio": new_bio if new_bio else "🐯 新朋友，请多多关照~"
                     }
                     
-                    # 把新用户加为邀请人的好友
                     for u in data["users"]:
                         if u["id"] == inviter["id"]:
                             u["friends"].append(new_id)
@@ -355,7 +337,6 @@ else:
     with st.sidebar:
         st.markdown("---")
         
-        # 显示头像
         if current_user.get("avatar") and os.path.exists(current_user["avatar"]):
             avatar_img = Image.open(current_user["avatar"])
             st.image(avatar_img, width=100)
@@ -370,7 +351,6 @@ else:
         
         st.markdown("---")
         
-        # 导航菜单
         page = st.radio(
             "📖 美食日记",
             ["🏠 首页·美食广场", "📝 记录今日美食", "👥 我的饭搭子", "🐯 个人中心"],
@@ -380,7 +360,7 @@ else:
         st.markdown("---")
         st.caption("🐯 每天都要好好吃饭哦~")
     
-        # ========== 首页·美食广场 ==========
+    # ========== 首页·美食广场 ==========
     if page == "🏠 首页·美食广场":
         st.header("🏠 美食广场")
         st.caption(random_greeting())
@@ -388,9 +368,8 @@ else:
         data = load_data()
         friends = get_friends(data, st.session_state.user_id)
         
-        # 筛选
         st.markdown("### 🔍 筛选美食")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             show_filter = st.selectbox(
                 "👀 显示", 
@@ -403,10 +382,14 @@ else:
             else:
                 filter_city = "🌍 全部"
                 st.selectbox("📍 按城市筛选", ["🌍 全部"], disabled=True)
+        with col3:
+            filter_type = st.selectbox(
+                "🍱 分类筛选",
+                ["🍱 全部", "🍱 外卖", "🍽️ 奢侈一把"]
+            )
         
         recommendations = data["recommendations"]
         
-        # 应用筛选
         filtered_recs = []
         for rec in recommendations:
             if show_filter == "🐯 只看我的推荐" and rec["user_id"] != st.session_state.user_id:
@@ -422,6 +405,12 @@ else:
             
             if filter_city != "🌍 全部" and rec.get("city", "未知") != filter_city:
                 continue
+            
+            if filter_type == "🍱 外卖" and rec.get("food_type", "外卖") != "外卖":
+                continue
+            if filter_type == "🍽️ 奢侈一把" and rec.get("food_type", "外卖") != "奢侈一把":
+                continue
+            
             filtered_recs.append(rec)
         
         if len(filtered_recs) == 0:
@@ -450,13 +439,16 @@ else:
                 else:
                     user_label = f"🍜 {user_name}"
                 
+                type_icon = "🍱" if rec.get("food_type", "外卖") == "外卖" else "🍽️"
+                type_text = "外卖" if rec.get("food_type", "外卖") == "外卖" else "奢侈一把"
+                
                 col1, col2 = st.columns([2, 1])
                 
                 with col1:
                     st.markdown(f"""
-                    **{user_label} 推荐**
+                    **{user_label} 推荐**  {type_icon} {type_text}
                     
-                    ## 🍽️ {rec['restaurant']}
+                    ## {rec['restaurant']}
                     **{rec['dish']}** · {'⭐' * rec['rating']} {rec['rating']}星 · {rec['price']}
                     
                     > 💬 {rec['reason']}
@@ -480,7 +472,6 @@ else:
                     else:
                         st.caption("🐯 想象一下~一定很好吃！")
                 
-                # 如果是自己的推荐，显示编辑按钮
                 if is_my:
                     col1, col2, col3 = st.columns([1, 1, 3])
                     with col1:
@@ -489,7 +480,6 @@ else:
                             st.rerun()
                     with col2:
                         if st.button("🗑️ 删除", key=f"delete_{rec['id']}"):
-                            # 删除推荐
                             data = load_data()
                             data["recommendations"] = [r for r in data["recommendations"] if r["id"] != rec["id"]]
                             save_data(data)
@@ -509,14 +499,21 @@ else:
                 friends = get_friends(data, st.session_state.user_id)
                 
                 with st.form("edit_food_form"):
+                    st.markdown("### 🍱 美食分类")
+                    
+                    current_type = rec_to_edit.get("food_type", "外卖")
+                    edit_food_type = st.radio(
+                        "选择类型",
+                        ["🍱 外卖（日常推荐）", "🍽️ 奢侈一把（餐厅探店）"],
+                        horizontal=True,
+                        index=0 if current_type == "外卖" else 1
+                    )
+                    
                     st.markdown("### 👥 和谁一起吃？")
                     
                     friend_names = [get_user_display_name(f) for f in friends]
-                    
-                    # 解析当前已经选择的人
                     current_ate_with = rec_to_edit.get("ate_with", "")
                     current_friends = [name.strip() for name in current_ate_with.split(",") if name.strip()] if current_ate_with else []
-                    
                     ate_with_options = ["🐯 独自一人"] + friend_names
                     ate_with = st.multiselect(
                         "选择和谁一起吃的",
@@ -527,7 +524,6 @@ else:
                     
                     st.markdown("### 📸 美食照片")
                     
-                    # 显示当前图片
                     if rec_to_edit.get("image_path") and os.path.exists(rec_to_edit["image_path"]):
                         st.image(rec_to_edit["image_path"], width=150, caption="当前照片")
                         change_photo = st.checkbox("更换照片")
@@ -576,23 +572,18 @@ else:
                     if submit_edit:
                         data = load_data()
                         
-                        # 找到并更新推荐
                         for rec in data["recommendations"]:
                             if rec["id"] == rec_to_edit["id"]:
-                                # 更新图片
                                 if new_photo:
                                     image_path = save_image(new_photo, st.session_state.user_id, rec["restaurant"])
                                     rec["image_path"] = image_path
                                 
-                                # 更新和谁一起吃
                                 ate_with_str = ", ".join([a for a in ate_with if a != "🐯 独自一人"]) if ate_with else ""
                                 rec["ate_with"] = ate_with_str
-                                
-                                # 更新其他字段
                                 rec["reason"] = new_reason
                                 rec["rating"] = new_rating
                                 rec["tags"] = new_tags if new_tags else "美食"
-                                
+                                rec["food_type"] = "外卖" if "外卖" in edit_food_type else "奢侈一把"
                                 break
                         
                         save_data(data)
@@ -632,6 +623,14 @@ else:
                 rating = st.slider("⭐ 评分", 1, 5, 4)
             with col2:
                 price = st.selectbox("💰 价格", ["¥ (平价)", "¥¥ (中等)", "¥¥¥ (稍贵)"])
+            
+            st.markdown("### 🍱 美食分类")
+            food_type = st.radio(
+                "选择类型",
+                ["🍱 外卖（日常推荐）", "🍽️ 奢侈一把（餐厅探店）"],
+                horizontal=True,
+                help="外卖：平时点餐参考；奢侈一把：餐厅/探店分享"
+            )
             
             st.markdown("### 👥 和谁一起吃？")
             
@@ -674,6 +673,8 @@ else:
                     
                     ate_with_str = ", ".join([a for a in ate_with if a != "🐯 独自一人"]) if ate_with else ""
                     
+                    type_value = "外卖" if "外卖" in food_type else "奢侈一把"
+                    
                     new_rec = {
                         "id": len(data["recommendations"]) + 1,
                         "user_id": st.session_state.user_id,
@@ -687,7 +688,8 @@ else:
                         "tags": tags or "美食",
                         "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "image_path": image_path,
-                        "ate_with": ate_with_str
+                        "ate_with": ate_with_str,
+                        "food_type": type_value
                     }
                     
                     data["recommendations"].append(new_rec)
@@ -729,7 +731,6 @@ else:
                         st.rerun()
                 st.markdown("---")
         
-        # 添加好友
         st.markdown("### 🎉 认识新朋友")
         
         all_users = [u for u in data["users"] if u["id"] != st.session_state.user_id]
@@ -761,7 +762,6 @@ else:
         st.header("🐯 个人中心")
         st.caption("这里藏着美食家的小秘密~")
         
-        # 重新加载最新数据
         data = load_data()
         current_user = get_user_by_id(data, st.session_state.user_id)
         
@@ -779,10 +779,8 @@ else:
         
         st.markdown("---")
         
-        # 编辑个人信息
         st.markdown("### 🐯 编辑我的小档案")
         
-        # 头像显示和上传
         col1, col2 = st.columns([1, 2])
         with col1:
             if current_user.get("avatar") and os.path.exists(current_user["avatar"]):
@@ -805,14 +803,12 @@ else:
                 st.image(preview_img, width=80)
                 st.caption("预览（上传后自动裁剪为正方形）")
         
-        # 昵称输入
         new_nickname = st.text_input(
             "🍜 昵称", 
             value=current_user.get("nickname", current_user["username"]),
             key="edit_nickname"
         )
         
-        # 简介输入
         new_bio = st.text_area(
             "📝 一句话介绍自己", 
             value=current_user.get("bio", ""),
@@ -820,17 +816,14 @@ else:
             height=80
         )
         
-        # 保存按钮
         col1, col2, col3 = st.columns([1, 1, 1])
         with col2:
             save_clicked = st.button("💾 保存小档案", use_container_width=True, type="primary")
         
         if save_clicked:
-            # 重新加载最新数据
             data = load_data()
             current_user = get_user_by_id(data, st.session_state.user_id)
             
-            # 处理头像
             if new_avatar:
                 if current_user.get("avatar") and os.path.exists(current_user["avatar"]):
                     try:
@@ -841,30 +834,24 @@ else:
                 avatar_path = save_avatar(new_avatar, st.session_state.user_id)
                 current_user["avatar"] = avatar_path
             
-            # 更新昵称
             if new_nickname:
                 current_user["nickname"] = new_nickname
             
-            # 更新简介
             current_user["bio"] = new_bio
             
-            # 保存到文件
             save_data(data)
-            
             st.success("🎉 小档案更新成功！")
             st.balloons()
             st.rerun()
         
         st.markdown("---")
         
-        # 我的邀请码
         st.markdown("### 📨 我的邀请码")
         st.code(current_user["invite_code"])
         st.caption("🐯 把邀请码发给朋友，他们注册后会自动成为你的饭搭子！")
         
         st.markdown("---")
         
-        # 我的推荐记录
         st.markdown("### 📝 我的美食日记")
         if len(my_recs) == 0:
             st.info("🐯 还没有美食日记，快去记录你的第一顿美食吧！")
@@ -876,8 +863,9 @@ else:
                 with st.container():
                     col1, col2 = st.columns([3, 1])
                     with col1:
+                        type_icon = "🍱" if rec.get("food_type", "外卖") == "外卖" else "🍽️"
                         st.markdown(f"""
-                        **{rec['restaurant']}** · {rec['city']} {rec['district']}
+                        {type_icon} **{rec['restaurant']}** · {rec['city']} {rec['district']}
                         {'⭐' * rec['rating']} {rec['rating']}星
                         """)
                     with col2:
