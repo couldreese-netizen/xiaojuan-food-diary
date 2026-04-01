@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "username": "xiaojuan",
+      "nickname": "🐯 小卷 🧀",
+      "invite_code": "XIAOJUAN2024",
+      "avatar": "avatars\\user_1_20260402_000928.jpg",
+      "friends": [],
+      "bio": "🍜 发狠了忘情了我吃吃吃"
+    }
+  ],
+  "recommendations": []
+}
