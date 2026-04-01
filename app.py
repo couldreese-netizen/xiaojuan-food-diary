@@ -1,7 +1,7 @@
 import streamlit as st
 import json
 import os
-from PIL import Image
+from PIL import Image, ImageOps
 import datetime
 import random
 import re
@@ -61,8 +61,8 @@ def save_avatar(uploaded_file, user_id):
         os.makedirs("avatars")
     
     img = Image.open(uploaded_file)
+    img = ImageOps.exif_transpose(img)
     
-    # 裁剪为正方形（取中心区域）
     width, height = img.size
     if width != height:
         size = min(width, height)
@@ -70,7 +70,6 @@ def save_avatar(uploaded_file, user_id):
         top = (height - size) // 2
         img = img.crop((left, top, left + size, top + size))
     
-    # 调整大小为200x200
     img = img.resize((200, 200), Image.Resampling.LANCZOS)
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -82,17 +81,19 @@ def save_avatar(uploaded_file, user_id):
     return filepath
 
 def save_image(uploaded_file, user_id, restaurant_name):
-    """保存美食图片"""
+    """保存美食图片，自动修正方向"""
     if not os.path.exists("uploads"):
         os.makedirs("uploads")
+    
+    img = Image.open(uploaded_file)
+    img = ImageOps.exif_transpose(img)
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     clean_name = "".join(c for c in restaurant_name if c.isalnum() or c in " _-")
     filename = f"{user_id}_{timestamp}_{clean_name}.jpg"
     filepath = os.path.join("uploads", filename)
     
-    with open(filepath, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+    img.save(filepath, "JPEG", quality=85)
     
     return filepath
 
@@ -198,16 +199,32 @@ def add_initial_user_if_needed(data):
 st.set_page_config(
     page_title="🐯 小卷的美食日记", 
     page_icon="🍜", 
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# ========== 初始化登录状态 ==========
+# ========== 记住登录状态（URL参数） ==========
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_id = None
     st.session_state.user_name = None
 
-# ========== 确保至少有一个用户（小卷）==========
+if not st.session_state.logged_in:
+    user_id_param = st.query_params.get("user_id")
+    username_param = st.query_params.get("username")
+    
+    if user_id_param and username_param:
+        data = load_data()
+        try:
+            user = get_user_by_id(data, int(user_id_param))
+            if user and user["username"] == username_param:
+                st.session_state.logged_in = True
+                st.session_state.user_id = user["id"]
+                st.session_state.user_name = user["username"]
+                st.rerun()
+        except:
+            pass
+
 data = load_data()
 add_initial_user_if_needed(data)
 
@@ -253,6 +270,8 @@ if not st.session_state.logged_in:
                     st.session_state.logged_in = True
                     st.session_state.user_id = user["id"]
                     st.session_state.user_name = user["username"]
+                    st.query_params["user_id"] = user["id"]
+                    st.query_params["username"] = user["username"]
                     st.success(f"🎉 欢迎回来，{get_user_display_name(user)}！")
                     st.balloons()
                     st.rerun()
@@ -274,6 +293,7 @@ if not st.session_state.logged_in:
         
         if new_avatar:
             preview_img = Image.open(new_avatar)
+            preview_img = ImageOps.exif_transpose(preview_img)
             st.image(preview_img, width=100)
             st.caption("上传后会自动裁剪为正方形")
         
@@ -333,7 +353,6 @@ else:
         st.session_state.logged_in = False
         st.rerun()
     
-    # 侧边栏显示用户信息
     with st.sidebar:
         st.markdown("---")
         
@@ -472,6 +491,30 @@ else:
                     else:
                         st.caption("🐯 想象一下~一定很好吃！")
                 
+                # 点赞按钮行
+                like_count = len(rec.get("likes", []))
+                liked = st.session_state.user_id in rec.get("likes", [])
+                
+                col_like, col_empty = st.columns([1, 5])
+                with col_like:
+                    button_label = f"❤️ {like_count}" if liked else f"🤍 {like_count}"
+                    if st.button(button_label, key=f"like_{rec['id']}"):
+                        data = load_data()
+                        for r in data["recommendations"]:
+                            if r["id"] == rec["id"]:
+                                if "likes" not in r:
+                                    r["likes"] = []
+                                if st.session_state.user_id in r["likes"]:
+                                    r["likes"].remove(st.session_state.user_id)
+                                else:
+                                    r["likes"].append(st.session_state.user_id)
+                                break
+                        save_data(data)
+                        st.rerun()
+                
+                st.markdown("---")
+                
+                # 编辑删除按钮
                 if is_my:
                     col1, col2, col3 = st.columns([1, 1, 3])
                     with col1:
@@ -539,6 +582,7 @@ else:
                         )
                         if new_photo:
                             preview_img = Image.open(new_photo)
+                            preview_img = ImageOps.exif_transpose(preview_img)
                             st.image(preview_img, width=150, caption="新照片预览")
                     
                     st.markdown("### 💬 美食评价")
@@ -656,6 +700,7 @@ else:
             
             if uploaded_photo:
                 image = Image.open(uploaded_photo)
+                image = ImageOps.exif_transpose(image)
                 st.image(image, width=200)
                 st.caption("🐯 哇！看起来好好吃！")
             
@@ -689,7 +734,8 @@ else:
                         "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "image_path": image_path,
                         "ate_with": ate_with_str,
-                        "food_type": type_value
+                        "food_type": type_value,
+                        "likes": []
                     }
                     
                     data["recommendations"].append(new_rec)
@@ -800,6 +846,7 @@ else:
             )
             if new_avatar:
                 preview_img = Image.open(new_avatar)
+                preview_img = ImageOps.exif_transpose(preview_img)
                 st.image(preview_img, width=80)
                 st.caption("预览（上传后自动裁剪为正方形）")
         
@@ -864,9 +911,10 @@ else:
                     col1, col2 = st.columns([3, 1])
                     with col1:
                         type_icon = "🍱" if rec.get("food_type", "外卖") == "外卖" else "🍽️"
+                        like_count = len(rec.get("likes", []))
                         st.markdown(f"""
                         {type_icon} **{rec['restaurant']}** · {rec['city']} {rec['district']}
-                        {'⭐' * rec['rating']} {rec['rating']}星
+                        {'⭐' * rec['rating']} {rec['rating']}星 · ❤️ {like_count}
                         """)
                     with col2:
                         st.caption(f"📅 {rec.get('date', '未知')}")
