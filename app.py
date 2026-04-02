@@ -18,7 +18,9 @@ XIAOJUAN_SAYINGS = [
     "📝 小卷的美食雷达又响啦！",
     "🎉 你太会吃了！小卷为你鼓掌～",
     "🍱 下次带小卷一起去吃好不好？",
-    "🌟 你的美食日记闪闪发光！"
+    "🌟 你的美食日记闪闪发光！",
+    "🤓 tori说今天要奢侈一把！",
+    "🥹 尾椎骨说：我不争！"
 ]
 
 def random_saying():
@@ -821,59 +823,84 @@ else:
                         del st.session_state.editing_rec
                         st.rerun()
     
-    # ========== 记录今日美食 ==========
+       # ========== 记录今日美食 ==========
     elif page == "📝 记录今日美食":
         st.header("📝 记录今日美食")
         st.caption("🐯 快把你吃到的美味分享给朋友们吧！")
         
+        # 初始化缓存变量（如果不存在）
+        if "food_cache" not in st.session_state:
+            st.session_state.food_cache = {
+                "city": "",
+                "district": "",
+                "restaurant": "",
+                "dish": "",
+                "rating": 4,
+                "price": 50,
+                "food_type": "🍱 外卖吃啥",
+                "ate_with": [],
+                "reason": "",
+                "tags": "",
+                "photo": None
+            }
+        
         data = load_data()
         friends = get_friends(data, st.session_state.user_id)
         
-        with st.form("add_food", clear_on_submit=True):
+        # 使用缓存值作为默认值
+        cache = st.session_state.food_cache
+        
+        with st.form("add_food"):
             st.markdown("### 🍽️ 吃了什么？")
             col1, col2 = st.columns(2)
             with col1:
-                city = st.text_input("📍 城市*", placeholder="例如：武汉、深圳、北京")
+                city = st.text_input("📍 城市*", placeholder="例如：武汉、深圳、北京", value=cache["city"])
             with col2:
-                district = st.text_input("🏘️ 区域", placeholder="例如：洪山区、南山区")
+                district = st.text_input("🏘️ 区域", placeholder="例如：洪山区、南山区", value=cache["district"])
             
             col1, col2 = st.columns(2)
             with col1:
-                restaurant = st.text_input("🏠 店名*", placeholder="例如：野妹火锅")
+                restaurant = st.text_input("🏠 店名*", placeholder="例如：野妹火锅", value=cache["restaurant"])
             with col2:
-                dish = st.text_input("🍜 菜品名", placeholder="例如：虾滑")
+                dish = st.text_input("🍜 菜品名", placeholder="例如：虾滑", value=cache["dish"])
             
             col1, col2 = st.columns(2)
             with col1:
-                rating = st.slider("⭐ 评分", 1, 5, 4)
+                rating = st.slider("⭐ 评分", 1, 5, value=cache["rating"])
             with col2:
-                price = st.number_input("💰 人均价格（元）", min_value=0, max_value=9999, value=50, step=10, help="单位：元/人")
+                price = st.number_input("💰 人均价格（元）", min_value=0, max_value=9999, value=cache["price"], step=10, help="单位：元/人")
             
             st.markdown("### 🍱 美食分类")
             food_type = st.radio(
                 "选择类型",
                 ["🍱 外卖吃啥", "🍽️ 奢侈一把"],
                 horizontal=True,
+                index=0 if cache["food_type"] == "🍱 外卖吃啥" else 1,
                 help="外卖吃啥：日常点餐参考；奢侈一把：餐厅/探店分享"
             )
             
             st.markdown("### 👥 和谁一起吃？")
             friend_names = [get_user_display_name(f) for f in friends]
             ate_with_options = ["🐯 独自一人"] + friend_names
+            
+            # 恢复之前选中的好友
+            default_friends = [f for f in cache["ate_with"] if f in ate_with_options]
             ate_with = st.multiselect(
                 "选择和谁一起吃的",
                 ate_with_options,
+                default=default_friends,
                 help="记录和谁一起分享美食"
             )
             
             st.markdown("### 💬 美食评价")
-            reason = st.text_area("推荐理由*", placeholder="为什么推荐？有什么必点菜？", height=100)
-            tags = st.text_input("🏷️ 标签", placeholder="例如：火锅,必点,隐藏菜单")
+            reason = st.text_area("推荐理由*", placeholder="为什么推荐？有什么必点菜？", value=cache["reason"], height=100)
+            tags = st.text_input("🏷️ 标签", placeholder="例如：火锅,必点,隐藏菜单", value=cache["tags"])
             
             st.markdown("### 📸 美食照片")
             uploaded_photo = st.file_uploader(
                 "上传美食照片",
-                type=["jpg", "jpeg", "png"]
+                type=["jpg", "jpeg", "png"],
+                key="photo_uploader"
             )
             if uploaded_photo:
                 image = Image.open(uploaded_photo)
@@ -884,9 +911,55 @@ else:
             submitted = st.form_submit_button("🐯 发布美食日记", use_container_width=True, type="primary")
             
             if submitted:
-                if not restaurant or not city or not reason:
-                    st.error("请填写店名、城市和推荐理由")
+                # 验证必填项
+                if not restaurant:
+                    st.error("请填写店名")
+                    # 保存当前输入到缓存
+                    st.session_state.food_cache = {
+                        "city": city,
+                        "district": district,
+                        "restaurant": restaurant,
+                        "dish": dish,
+                        "rating": rating,
+                        "price": price,
+                        "food_type": food_type,
+                        "ate_with": ate_with,
+                        "reason": reason,
+                        "tags": tags,
+                        "photo": uploaded_photo
+                    }
+                elif not city:
+                    st.error("请填写城市")
+                    st.session_state.food_cache = {
+                        "city": city,
+                        "district": district,
+                        "restaurant": restaurant,
+                        "dish": dish,
+                        "rating": rating,
+                        "price": price,
+                        "food_type": food_type,
+                        "ate_with": ate_with,
+                        "reason": reason,
+                        "tags": tags,
+                        "photo": uploaded_photo
+                    }
+                elif not reason:
+                    st.error("请填写推荐理由")
+                    st.session_state.food_cache = {
+                        "city": city,
+                        "district": district,
+                        "restaurant": restaurant,
+                        "dish": dish,
+                        "rating": rating,
+                        "price": price,
+                        "food_type": food_type,
+                        "ate_with": ate_with,
+                        "reason": reason,
+                        "tags": tags,
+                        "photo": uploaded_photo
+                    }
                 else:
+                    # 所有验证通过，保存到数据库
                     data = load_data()
                     
                     image_path = None
@@ -921,8 +994,24 @@ else:
                     data["recommendations"].append(new_rec)
                     save_data(data)
                     
+                    # 清空缓存
+                    st.session_state.food_cache = {
+                        "city": "",
+                        "district": "",
+                        "restaurant": "",
+                        "dish": "",
+                        "rating": 4,
+                        "price": 50,
+                        "food_type": "🍱 外卖吃啥",
+                        "ate_with": [],
+                        "reason": "",
+                        "tags": "",
+                        "photo": None
+                    }
+                    
                     st.success(random_saying())
                     st.balloons()
+                    st.rerun()
     
     # ========== 我的饭搭子 ==========
     elif page == "👥 我的饭搭子":
@@ -1070,7 +1159,42 @@ else:
         
         st.markdown("---")
         
-        # 我赞过的美食（收藏夹）
+        # ========== 管理员面板（仅小卷可见） ==========
+        if st.session_state.user_id == 1:
+            with st.expander("🔧 管理员面板（仅小卷可见）"):
+                st.markdown("### 👥 所有用户邀请码")
+                
+                users = data["users"]
+                
+                if len(users) == 0:
+                    st.info("暂无用户")
+                else:
+                    user_data = []
+                    for u in users:
+                        user_data.append({
+                            "ID": u["id"],
+                            "用户名": u["username"],
+                            "昵称": u.get("nickname", u["username"]),
+                            "邀请码": u["invite_code"],
+                            "剩余邀请": u.get("remaining_invites", "无限制" if u["id"] == 1 else "10")
+                        })
+                    
+                    st.table(user_data)
+                    st.caption("💡 把邀请码发给朋友，他们就能登录啦")
+                
+                st.markdown("---")
+                st.markdown("### 📊 统计信息")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("总用户数", len(data["users"]))
+                with col2:
+                    total_recs = len(data["recommendations"])
+                    st.metric("总美食日记", total_recs)
+                with col3:
+                    total_likes = sum(len(r.get("likes", [])) for r in data["recommendations"])
+                    st.metric("总点赞数", total_likes)
+        
+        # ========== 我赞过的美食 ==========
         st.markdown("### ❤️ 我的收藏夹")
         st.caption("你点赞过的美食，随时查看想吃的好店～")
         
