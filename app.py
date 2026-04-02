@@ -696,21 +696,24 @@ else:
                 
                 st.markdown("---")
                 
+                # 编辑和删除按钮（缩进已修复）
                 if is_my:
-                    col1, col2, col3 = st.columns([1,1,3])
+                    col1, col2 = st.columns([1, 1])
                     with col1:
                         if st.button("✏️ 编辑", key=f"edit_{rec['id']}"):
                             st.session_state.editing_rec = rec
                             st.rerun()
                     with col2:
+                        # 简化版删除按钮
                         if st.button("🗑️ 删除", key=f"delete_{rec['id']}"):
-                            st.warning("确定删除？无法恢复！")
-                            if st.button("✅ 确认删除", key=f"cfm_{rec['id']}", type="primary"):
+                            try:
                                 delete_recommendation(rec["id"])
-                                st.success("已删除")
+                                st.success(f"✅ 已删除「{rec['restaurant']}」")
                                 st.rerun()
-                    st.markdown("---")
+                            except Exception as e:
+                                st.error(f"删除失败: {e}")
         
+        # 编辑弹窗
         if "editing_rec" in st.session_state:
             rec_to_edit = st.session_state.editing_rec
             with st.expander("✏️ 编辑美食日记", expanded=True):
@@ -770,8 +773,7 @@ else:
                         del st.session_state.editing_rec
                         st.rerun()
     
-    # =======
-        # ========== 记录今日美食 ==========
+    # ========== 记录今日美食 ==========
     elif page == "📝 记录今日美食":
         st.header("📝 记录今日美食")
         st.caption("🐯 分享你吃到的美味！")
@@ -802,24 +804,17 @@ else:
             st.markdown("### 🍱 美食分类")
             food_type = st.radio("选择类型", ["🍱 外卖吃啥", "🍽️ 奢侈一把"], horizontal=True)
 
-            # ======================
-            # 口味偏好（🌶️ 辣度选择仅当选中辣椒时出现）
-            # ======================
+            # 口味偏好
             st.markdown("### 😋 口味偏好")
-            
-            # 口味图标选项
             taste_icons = ["🌶️ 辣", "🍰 甜点", "🍦 冰淇淋", "🧋 奶茶"]
             selected_taste = st.radio(
                 "选择口味类型",
                 options=taste_icons,
                 horizontal=True,
-                format_func=lambda x: x.split()[0]  # 只显示图标，不显示文字
+                format_func=lambda x: x.split()[0]
             )
             
-            # 提取选中的图标
             selected_icon = selected_taste.split()[0]
-            
-            # 辣度选择：只有选中辣椒时才显示
             spiciness = 0
             if selected_icon == "🌶️":
                 spice_level = st.radio(
@@ -829,7 +824,6 @@ else:
                     index=0
                 )
                 spiciness = int(spice_level.split()[0])
-                st.caption("🌶️ 0=不辣 | 1=微辣 | 2=中辣 | 3=超辣")
 
             # 👥 和谁一起吃
             st.markdown("### 👥 和谁一起吃？")
@@ -872,7 +866,6 @@ else:
                     tz = ZoneInfo("Asia/Shanghai")
                     now = datetime.datetime.now(tz)
                     
-                    # 根据选中的图标设置 sweet_category
                     icon_to_sweet = {
                         "🌶️": "",
                         "🍰": "🍰",
@@ -903,11 +896,14 @@ else:
                     add_recommendation(new_rec)
                     
                     if len(my_recs) == 0:
-                        st.success("🥳 第一条美食日记！小卷撒花～")
+                        st.toast("🥳 第一条美食日记！小卷撒花～", icon="🎉")
                     else:
-                        st.success(random_saying())
+                        st.toast(random_saying(), icon="🐯")
                     st.balloons()
+                    import time
+                    time.sleep(1.5)
                     st.rerun()
+    
     # ========== 我的饭搭子 ==========
     elif page == "👥 我的饭搭子":
         st.header("👥 我的饭搭子")
@@ -1118,3 +1114,8 @@ else:
         st.markdown("---")
         st.markdown("### 📨 我的邀请码")
         st.code(current_user["invite_code"])
+        if current_user["id"] == 1:
+            st.caption("✨ 小卷的邀请码无限制")
+        else:
+            remaining = current_user.get("remaining_invites", 10)
+            st.caption(f"✨ 还可邀请 {remaining} 位朋友")
