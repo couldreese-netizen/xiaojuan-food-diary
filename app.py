@@ -48,6 +48,12 @@ def random_saying():
     return random.choice(XIAOJUAN_SAYINGS)
 
 # ========== 辅助函数 ==========
+def format_location(city, district):
+    """格式化显示位置，如果区域未填写则只显示城市"""
+    if district and district != "未填写" and district.strip():
+        return f"{city} {district}"
+    return city
+
 def safe_open_image(filepath, default_size=(200,200)):
     try:
         if filepath and os.path.exists(filepath):
@@ -581,7 +587,7 @@ else:
                     
                     > {rec['reason']}
                     
-                    📍 {rec['city']} {rec['district']} · 🏷️ {rec['tags']}
+                    📍 {format_location(rec['city'], rec.get('district', ''))} · 🏷️ {rec['tags']}
                     """)
                     if rec.get("ate_with"):
                         st.caption(f"👥 和 {rec['ate_with']} 一起吃")
@@ -701,7 +707,7 @@ else:
                     
                     > 💬 {rec['reason']}
                     
-                    📍 {rec['city']} {rec['district']} · 🏷️ {rec['tags']}
+                    📍 {format_location(rec['city'], rec.get('district', ''))} · 🏷️ {rec['tags']}
                     """)
                     if rec.get("ate_with"):
                         st.caption(f"👥 和 {rec['ate_with']} 一起吃")
