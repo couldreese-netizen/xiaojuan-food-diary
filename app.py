@@ -6,6 +6,7 @@ import datetime
 import random
 import re
 from zoneinfo import ZoneInfo
+import bcrypt  # 新增密码哈希
 from supabase_client import (
     get_all_users, get_user_by_id, get_user_by_username,
     get_user_by_invite_code, add_user, update_user,
@@ -13,6 +14,15 @@ from supabase_client import (
     get_friends as supabase_get_friends, add_friend as supabase_add_friend,
     delete_recommendation, update_recommendation
 )
+
+# ========== 密码哈希辅助函数 ==========
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    if not hashed:
+        return False
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
 # ========== 小卷语录库（你最新自定义版）==========
 XIAOJUAN_SAYINGS = [
@@ -103,6 +113,7 @@ def get_user_display_name(user):
 def add_initial_user_if_needed():
     users = get_all_users()
     if len(users) == 0:
+        # 小卷初始密码为 123456
         new_user = {
             "username": "xiaojuan",
             "nickname": "🐯 小卷 🧀",
@@ -110,7 +121,8 @@ def add_initial_user_if_needed():
             "avatar": None,
             "friends": [],
             "bio": "🍜 美食探险家 | 小卷的觅食日记 | 一起吃遍全世界！",
-            "remaining_invites": -1
+            "remaining_invites": -1,
+            "password_hash": hash_password("123456")
         }
         add_user(new_user)
         return new_user
@@ -185,7 +197,7 @@ img {border-radius: 50% !important;}
 </style>
 """, unsafe_allow_html=True)
 
-# ========== 自动登录 ==========
+# ========== 自动登录（使用 localStorage 存储用户ID） ==========
 if "logged_in" not in st.session_state or not st.session_state.logged_in:
     st.markdown("""
     <script>
@@ -249,14 +261,14 @@ if not st.session_state.logged_in:
     with tab1:
         st.markdown("### 登录")
         login_username = st.text_input("用户名", placeholder="你的用户名", key="login_username")
-        login_invite_code = st.text_input("邀请码", placeholder="你的邀请码", key="login_code")
+        login_password = st.text_input("密码", type="password", placeholder="你的密码", key="login_password")
         
         if st.button("🐯 登录", key="login_btn", use_container_width=True):
-            if not login_username or not login_invite_code:
-                st.error("请填写用户名和邀请码")
+            if not login_username or not login_password:
+                st.error("请填写用户名和密码")
             else:
                 user = get_user_by_username(login_username)
-                if user and user["invite_code"] == login_invite_code:
+                if user and verify_password(login_password, user.get("password_hash", "")):
                     st.session_state.logged_in = True
                     st.session_state.user_id = user["id"]
                     st.session_state.user_name = user["username"]
@@ -272,7 +284,7 @@ if not st.session_state.logged_in:
                     st.balloons()
                     st.rerun()
                 else:
-                    st.error("❌ 用户名或邀请码错误")
+                    st.error("❌ 用户名或密码错误")
     
     with tab2:
         st.markdown("### 🎉 注册新账号")
@@ -281,6 +293,8 @@ if not st.session_state.logged_in:
         new_username = st.text_input("用户名（登录用）", placeholder="英文或数字，例如：xiaoming", key="reg_username")
         new_nickname = st.text_input("昵称（显示用）", placeholder="例如：爱吃的小明", key="reg_nickname")
         new_bio = st.text_area("一句话介绍自己", placeholder="介绍一下自己吧~", key="reg_bio", height=80)
+        new_password = st.text_input("设置密码", type="password", placeholder="至少6位", key="reg_password")
+        new_password_confirm = st.text_input("确认密码", type="password", placeholder="再次输入密码", key="reg_password_confirm")
         
         st.markdown("**📸 上传头像（1:1正方形，会自动裁剪）**")
         new_avatar = st.file_uploader("点击上传头像", type=["jpg", "jpeg", "png"], key="reg_avatar")
@@ -297,6 +311,10 @@ if not st.session_state.logged_in:
                 st.error("请输入用户名")
             elif not new_nickname:
                 st.error("请输入昵称")
+            elif not new_password or len(new_password) < 6:
+                st.error("密码至少6位")
+            elif new_password != new_password_confirm:
+                st.error("两次输入的密码不一致")
             else:
                 inviter = get_user_by_invite_code(friend_code)
                 if not inviter:
@@ -326,7 +344,8 @@ if not st.session_state.logged_in:
                         "avatar": avatar_path,
                         "friends": [inviter["id"]],
                         "bio": new_bio if new_bio else "🐯 新朋友，请多多关照~",
-                        "remaining_invites": 10
+                        "remaining_invites": 10,
+                        "password_hash": hash_password(new_password)
                     }
                     friends_inviter = inviter.get("friends", [])
                     friends_inviter.append(new_id)
@@ -334,8 +353,8 @@ if not st.session_state.logged_in:
                     add_user(new_user)
                     
                     st.success(f"🎉 注册成功！欢迎加入HeyFoodie！")
-                    st.info(f"✨ 你的邀请码是：**{new_invite_code}**")
-                    st.caption("🐯 用这个邀请码登录，开始你的美食之旅吧！")
+                    st.info(f"✨ 你的邀请码是：**{new_invite_code}**（可用于邀请朋友）")
+                    st.caption("🐯 现在用用户名和密码登录吧！")
                     st.balloons()
 
 # ========== 主页面 ==========
@@ -381,6 +400,17 @@ else:
             st.rerun()
         st.markdown("---")
         st.caption("🐯 每天都要好好吃饭哦~")
+    
+    # ========== 美食大王榜、今天吃啥捏、首页·美食广场、记录今日美食、我的饭搭子 部分与之前完全相同 ==========
+    # （此处省略，因为与原代码一致，只需保留原功能即可）
+    # 注意：个人中心里需要增加“修改密码”功能，见下方
+    
+ 
+    
+    # 注意：其他页面（美食大王榜、今天吃啥捏、首页、记录美食、我的饭搭子）代码与之前完全相同，需保留。
+    # 为了节省篇幅，这里没有重复写出，但实际使用时必须把之前的完整代码接在后面。
+    # 由于最终回答长度限制，以上代码仅展示了修改的关键部分，实际你需要将原 app.py 中其他页面的代码原样粘贴到对应位置。import streamlit as st
+
     
     # ========== 美食大王榜 ==========
     if page == "🏆 美食大王榜":
@@ -1006,7 +1036,7 @@ else:
             remaining = current_user.get("remaining_invites", 10)
             st.caption(f"✨ 还可邀请 {remaining} 位朋友")
     
-    # ========== 个人中心 ==========
+        # ========== 个人中心 ==========
     elif page == "🐯 个人中心":
         st.header("🐯 个人中心")
         
@@ -1110,6 +1140,28 @@ else:
             update_user(st.session_state.user_id, updates)
             st.success("✅ 修改成功！")
             st.rerun()
+        
+        st.markdown("---")
+        
+        # ========== 修改密码 ==========
+        st.markdown("### 🔐 修改密码")
+        with st.form("change_password_form"):
+            old_pw = st.text_input("当前密码", type="password")
+            new_pw = st.text_input("新密码（至少6位）", type="password")
+            confirm_pw = st.text_input("确认新密码", type="password")
+            if st.form_submit_button("更新密码"):
+                if not verify_password(old_pw, current_user.get("password_hash", "")):
+                    st.error("当前密码错误")
+                elif len(new_pw) < 6:
+                    st.error("新密码至少6位")
+                elif new_pw != confirm_pw:
+                    st.error("新密码不一致")
+                else:
+                    update_user(st.session_state.user_id, {"password_hash": hash_password(new_pw)})
+                    st.success("密码已更新，请重新登录")
+                    st.balloons()
+                    st.session_state.logged_in = False
+                    st.rerun()
         
         st.markdown("---")
         st.markdown("### 📨 我的邀请码")
