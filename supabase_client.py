@@ -174,3 +174,26 @@ def delete_storage_file(bucket_name, file_path):
         return True
     except:
         return False
+
+# ========== 评论操作 ==========
+def get_comments(recommendation_id):
+    """获取某条推荐的所有评论"""
+    response = supabase.table("comments").select("*").eq("recommendation_id", recommendation_id).order("created_at", desc=False).execute()
+    return response.data
+
+def add_comment(recommendation_id, user_id, content):
+    """添加评论"""
+    if not content or not content.strip():
+        return None
+    data = {
+        "recommendation_id": recommendation_id,
+        "user_id": user_id,
+        "content": content.strip()
+    }
+    response = supabase.table("comments").insert(data).execute()
+    return response.data[0]
+
+def delete_comment(comment_id, user_id):
+    """删除评论（只能删自己的）"""
+    response = supabase.table("comments").delete().eq("id", comment_id).eq("user_id", user_id).execute()
+    return response.data
