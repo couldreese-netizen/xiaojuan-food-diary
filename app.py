@@ -13,7 +13,8 @@ from supabase_client import (
     get_all_recommendations, add_recommendation, toggle_like,
     get_friends as supabase_get_friends, add_friend as supabase_add_friend,
     delete_recommendation, update_recommendation,
-    upload_avatar, upload_food_image  # 新增云端上传函数
+    upload_avatar, upload_food_image,
+    get_comments, add_comment, delete_comment
 )
 
 # ========== 密码哈希辅助函数 ==========
@@ -34,7 +35,6 @@ XIAOJUAN_SAYINGS = [
     "🤓 tori说今天奢侈一把！",
     "👀 oo老师说: 很Q弹！",
     "🥺 尾椎骨说：我不争！",
-    "😭 33说：站长快来修bug！",
     "🐯 嗷呜～这个推荐太棒了，小卷要偷偷收藏！",
     "🍊 桔桔说手里有个热乎的馍馍比什么都重要",
     "💛 和朋友一起吃饭最开心啦！",
@@ -296,7 +296,6 @@ if not st.session_state.logged_in:
                     new_id = max([u["id"] for u in all_users], default=0) + 1
                     new_invite_code = generate_invite_code(new_username)
                     
-                    # 使用云端上传头像
                     avatar_url = None
                     if new_avatar:
                         avatar_url = upload_avatar(new_avatar, new_id)
@@ -332,7 +331,6 @@ else:
     
     with st.sidebar:
         st.markdown("---")
-        # 显示头像（直接使用 URL）
         if current_user.get("avatar"):
             st.image(current_user["avatar"], width=100)
         else:
@@ -671,16 +669,64 @@ else:
                 
                 like_count = len(rec.get("likes", []))
                 liked = st.session_state.user_id in rec.get("likes", [])
-                col_like, _ = st.columns([1, 5])
+                comment_count = len(get_comments(rec["id"]))
+                
+                col_like, col_comment, _ = st.columns([1, 1, 4])
                 with col_like:
                     btn_label = f"❤️ {like_count}" if liked else f"🤍 {like_count}"
                     if st.button(btn_label, key=f"like_{rec['id']}"):
                         toggle_like(rec["id"], st.session_state.user_id)
                         st.rerun()
+                with col_comment:
+                    if st.button(f"💬 {comment_count}", key=f"comment_btn_{rec['id']}"):
+                        if st.session_state.get("show_comments_for") == rec["id"]:
+                            del st.session_state.show_comments_for
+                        else:
+                            st.session_state.show_comments_for = rec["id"]
+                        st.rerun()
                 
                 st.markdown("---")
                 
-                # 编辑和删除按钮
+                # 评论区域
+                if st.session_state.get("show_comments_for") == rec["id"]:
+                    st.markdown("#### 💬 评论")
+                    
+                    comments = get_comments(rec["id"])
+                    
+                    if comments:
+                        for cmt in comments:
+                            cmt_user = get_user_by_id(cmt["user_id"])
+                            cmt_name = get_user_display_name(cmt_user) if cmt_user else "匿名"
+                            col_cmt_user, col_cmt_content, col_cmt_del = st.columns([1.5, 5, 0.5])
+                            with col_cmt_user:
+                                st.caption(f"**{cmt_name}**")
+                            with col_cmt_content:
+                                st.write(cmt["content"])
+                            with col_cmt_del:
+                                if cmt["user_id"] == st.session_state.user_id:
+                                    if st.button("❌", key=f"del_cmt_{cmt['id']}"):
+                                        delete_comment(cmt["id"], st.session_state.user_id)
+                                        st.rerun()
+                            st.markdown("---")
+                    else:
+                        st.caption("暂无评论，来说两句吧～")
+                    
+                    new_comment = st.text_input("写评论...", key=f"new_comment_{rec['id']}")
+                    col_submit, col_close = st.columns([1, 5])
+                    with col_submit:
+                        if st.button("发布", key=f"submit_cmt_{rec['id']}"):
+                            if new_comment and new_comment.strip():
+                                add_comment(rec["id"], st.session_state.user_id, new_comment)
+                                st.rerun()
+                            else:
+                                st.warning("评论不能为空")
+                    with col_close:
+                        if st.button("收起", key=f"close_cmt_{rec['id']}"):
+                            del st.session_state.show_comments_for
+                            st.rerun()
+                    
+                    st.markdown("---")
+                
                 if is_my:
                     col1, col2 = st.columns([1, 1])
                     with col1:
@@ -699,46 +745,59 @@ else:
         # 编辑弹窗
         if "editing_rec" in st.session_state:
             rec_to_edit = st.session_state.editing_rec
+            
+            if "temp_new_image" not in st.session_state:
+                st.session_state.temp_new_image = None
+            
             with st.expander("✏️ 编辑美食日记", expanded=True):
                 st.markdown(f"### 编辑：{rec_to_edit['restaurant']}")
                 friends = get_friends(st.session_state.user_id)
+                
+                st.markdown("### 📸 美食照片")
+                
+                if rec_to_edit.get("image_path"):
+                    st.image(rec_to_edit["image_path"], width=150, caption="当前图片")
+                
+                uploaded_img = st.file_uploader(
+                    "上传新照片（上传后立即预览，保存时替换）", 
+                    type=["jpg", "jpeg", "png"], 
+                    key=f"edit_img_upload_{rec_to_edit['id']}"
+                )
+                
+                if uploaded_img:
+                    preview_img = Image.open(uploaded_img)
+                    preview_img = ImageOps.exif_transpose(preview_img)
+                    st.image(preview_img, width=150, caption="新照片预览")
+                    st.session_state.temp_new_image = uploaded_img
+                elif rec_to_edit.get("image_path") and not uploaded_img:
+                    st.session_state.temp_new_image = None
+                
+                st.markdown("---")
+                
                 with st.form("edit_food_form"):
+                    st.markdown("### 🍱 美食分类")
                     current_type = rec_to_edit.get("food_type", "外卖吃啥")
                     type_options = ["🍱 外卖吃啥", "🍽️ 奢侈一把"]
                     type_idx = 0 if current_type == "外卖吃啥" else 1
                     edit_food_type = st.radio("类型", type_options, horizontal=True, index=type_idx)
                     
+                    st.markdown("### 👥 和谁一起吃？")
                     friend_names = [get_user_display_name(f) for f in friends]
                     current_ate = rec_to_edit.get("ate_with", "")
                     current_list = [x.strip() for x in current_ate.split(",") if x.strip()] if current_ate else []
                     ate_opts = ["🐯 独自一人"] + friend_names
-                    # 过滤无效默认值
                     valid_defaults = [x for x in current_list if x in ate_opts]
                     ate_with = st.multiselect("和谁吃", ate_opts, default=valid_defaults)
                     ate_other = st.text_input("其他朋友（逗号分隔）")
                     manual = [x.strip() for x in ate_other.split(",") if x.strip()]
                     ate_with = ate_with + manual
                     
-                    # 显示当前图片
-                    if rec_to_edit.get("image_path"):
-                        st.image(rec_to_edit["image_path"], width=150, caption="当前图片")
-                        change_photo = st.checkbox("更换图片")
-                    else:
-                        change_photo = True
+                    st.markdown("### 💬 美食评价")
+                    new_reason = st.text_area("推荐理由", value=rec_to_edit.get("reason", ""), height=100)
+                    new_rating = st.slider("评分", 1, 5, value=rec_to_edit.get("rating", 4))
+                    new_tags = st.text_input("标签", value=rec_to_edit.get("tags", ""))
                     
-                    new_img = None
-                    if change_photo:
-                        new_img = st.file_uploader("上传新图", type=["jpg","png"], key=f"edit_img_{rec_to_edit['id']}")
-                        if new_img:
-                            preview_img = Image.open(new_img)
-                            preview_img = ImageOps.exif_transpose(preview_img)
-                            st.image(preview_img, width=150, caption="新照片预览")
-                    
-                    new_reason = st.text_area("推荐理由", value=rec_to_edit.get("reason",""), height=100)
-                    new_rating = st.slider("评分",1,5, value=rec_to_edit.get("rating",4))
-                    new_tags = st.text_input("标签", value=rec_to_edit.get("tags",""))
-                    
-                    col1,col2 = st.columns(2)
+                    col1, col2 = st.columns(2)
                     with col1:
                         sub = st.form_submit_button("💾 保存", use_container_width=True, type="primary")
                     with col2:
@@ -752,15 +811,17 @@ else:
                             "rating": new_rating,
                             "tags": new_tags or "美食"
                         }
-                        if new_img:
-                            # 使用云端上传
-                            new_img_url = upload_food_image(new_img, st.session_state.user_id, rec_to_edit["restaurant"])
+                        if st.session_state.temp_new_image:
+                            new_img_url = upload_food_image(st.session_state.temp_new_image, st.session_state.user_id, rec_to_edit["restaurant"])
                             updates["image_path"] = new_img_url
                         update_recommendation(rec_to_edit["id"], updates)
                         st.success("✅ 更新成功")
+                        st.session_state.temp_new_image = None
                         del st.session_state.editing_rec
                         st.rerun()
+                    
                     if cancel:
+                        st.session_state.temp_new_image = None
                         del st.session_state.editing_rec
                         st.rerun()
     
@@ -795,7 +856,6 @@ else:
             st.markdown("### 🍱 美食分类")
             food_type = st.radio("选择类型", ["🍱 外卖吃啥", "🍽️ 奢侈一把"], horizontal=True)
 
-            # 口味偏好
             st.markdown("### 😋 口味偏好")
             taste_icons = ["🌶️ 辣", "🍰 甜点", "🍦 冰淇淋", "🧋 奶茶"]
             selected_taste = st.radio(
@@ -816,7 +876,6 @@ else:
                 )
                 spiciness = int(spice_level.split()[0])
 
-            # 👥 和谁一起吃
             st.markdown("### 👥 和谁一起吃？")
             friend_names = [get_user_display_name(f) for f in friends]
             ate_with_options = ["🐯 独自一人"] + friend_names
@@ -848,7 +907,6 @@ else:
                 if not restaurant or not city or not reason:
                     st.error("请填写店名、城市、理由")
                 else:
-                    # 使用云端上传图片
                     img_url = None
                     if uploaded_photo:
                         img_url = upload_food_image(uploaded_photo, st.session_state.user_id, restaurant)
@@ -896,103 +954,152 @@ else:
                     time.sleep(1.5)
                     st.rerun()
     
-    # ========== 我的饭搭子 ==========
+    # ========== 我的饭搭子（优化版） ==========
     elif page == "👥 我的饭搭子":
         st.header("👥 我的饭搭子")
-        friends = get_friends(st.session_state.user_id)
+        st.caption("🐯 和好朋友一起吃饭更香！")
         
-        st.markdown("### 🍜 我的饭搭子们")
-        if len(friends) == 0:
-            st.info("🐯 还没有饭搭子，快邀请朋友加入吧！")
-        else:
-            for friend in friends:
-                col1, col2, col3 = st.columns([1, 3, 1])
-                with col1:
-                    if friend.get("avatar"):
-                        st.image(friend["avatar"], width=60)
-                    else:
-                        st.markdown("## 🍜")
-                with col2:
-                    st.markdown(f"### {get_user_display_name(friend)}")
-                    st.caption(f"@{friend['username']}")
-                with col3:
-                    if st.button("❌ 删除", key=f"del_{friend['id']}"):
-                        remove_friend(st.session_state.user_id, friend['id'])
+        # 检查是否在查看好友主页
+        if "view_friend_id" in st.session_state:
+            # 显示好友主页
+            friend_id = st.session_state.view_friend_id
+            friend_user = get_user_by_id(friend_id)
+            
+            if friend_user:
+                st.markdown("---")
+                col_back, col_title = st.columns([1, 5])
+                with col_back:
+                    if st.button("← 返回", use_container_width=True):
+                        del st.session_state.view_friend_id
                         st.rerun()
-                st.markdown("---")
-        
-        st.markdown("### 🔍 寻找新朋友")
-        search_keyword = st.text_input("输入用户名或昵称搜索", placeholder="例如：小明")
-        if search_keyword:
-            results = search_users(search_keyword)
-            if results:
-                for user in results:
-                    col1, col2, col3 = st.columns([1, 3, 1])
-                    with col1:
-                        if user.get("avatar"):
-                            st.image(user["avatar"], width=50)
-                        else:
-                            st.markdown("🫂")
-                    with col2:
-                        st.markdown(f"**{get_user_display_name(user)}**")
-                        st.caption(f"@{user['username']}")
-                    with col3:
-                        if st.button("查看主页", key=f"view_{user['id']}"):
-                            st.session_state.view_user_id = user["id"]
-                            st.rerun()
-                    st.markdown("---")
-            else:
-                st.info("未找到相关用户")
-        
-        if "view_user_id" in st.session_state:
-            target_id = st.session_state.view_user_id
-            target_user = get_user_by_id(target_id)
-            if target_user:
-                st.markdown("---")
-                st.markdown(f"### 👤 {get_user_display_name(target_user)} 的主页")
+                with col_title:
+                    st.markdown(f"### 👤 {get_user_display_name(friend_user)} 的主页")
+                
+                # 好友头像和简介
                 col1, col2 = st.columns([1, 3])
                 with col1:
-                    if target_user.get("avatar"):
-                        st.image(target_user["avatar"], width=100)
+                    if friend_user.get("avatar"):
+                        st.image(friend_user["avatar"], width=120)
                     else:
                         st.markdown("## 🐯")
                 with col2:
-                    st.markdown(f"**{get_user_display_name(target_user)}**")
-                    st.caption(f"@{target_user['username']}")
-                    if target_user.get("bio"):
-                        st.caption(target_user["bio"])
+                    st.markdown(f"**{get_user_display_name(friend_user)}**")
+                    st.caption(f"@{friend_user['username']}")
+                    if friend_user.get("bio"):
+                        st.caption(f"📝 {friend_user['bio']}")
+                    else:
+                        st.caption("📝 这个人很懒，还没有写介绍～")
                 
-                user_recs = [r for r in get_all_recommendations() if r["user_id"] == target_id]
-                st.markdown(f"#### 📝 美食日记 ({len(user_recs)}篇)")
-                for rec in user_recs[-5:]:
-                    st.markdown(f"**{rec['restaurant']}** · {rec['city']} · {'⭐' * rec['rating']}")
-                    if rec.get("image_path"):
-                        st.image(rec["image_path"], width=150)
-                    st.markdown("---")
+                st.markdown("---")
                 
-                if target_id not in [f["id"] for f in friends] and target_id != st.session_state.user_id:
-                    if st.button("➕ 添加为饭搭子"):
-                        success, msg = add_friend(st.session_state.user_id, target_id)
-                        if success:
-                            st.success(msg)
-                            del st.session_state.view_user_id
-                            st.rerun()
-                        else:
-                            st.error(msg)
+                # 好友发布的美食日记
+                st.markdown("#### 📝 美食日记")
+                friend_recs = [r for r in get_all_recommendations() if r["user_id"] == friend_id]
                 
-                if st.button("← 返回"):
-                    del st.session_state.view_user_id
-                    st.rerun()
+                if len(friend_recs) == 0:
+                    st.info("🐯 还没有发布过美食日记～")
+                else:
+                    for rec in friend_recs[-10:]:  # 最多显示10条
+                        with st.container():
+                            col_img, col_info = st.columns([1, 2])
+                            with col_img:
+                                if rec.get("image_path"):
+                                    st.image(rec["image_path"], use_container_width=True)
+                                else:
+                                    type_icon = "🍱" if rec.get("food_type") == "外卖吃啥" else "🍽️"
+                                    st.markdown(f"# {type_icon}")
+                                    st.caption("暂无图片")
+                            with col_info:
+                                type_icon = "🍱" if rec.get("food_type") == "外卖吃啥" else "🍽️"
+                                sweet_icon = rec.get("sweet_category", "")
+                                spiciness = rec.get("spiciness", 0)
+                                spice_icons = "🌶️" * spiciness if spiciness > 0 else ""
+                                st.markdown(f"""
+                                **{rec['restaurant']}** {type_icon} {spice_icons} {sweet_icon}
+                                
+                                **{rec['dish']}** · {'⭐' * rec['rating']} {rec['rating']}星 · 人均 ¥{rec.get('price', 0)}
+                                
+                                > 💬 {rec['reason'][:100]}{'...' if len(rec['reason']) > 100 else ''}
+                                
+                                📍 {format_location(rec['city'], rec.get('district', ''))} · 🏷️ {rec['tags']}
+                                """)
+                                if rec.get("date"):
+                                    st.caption(f"📅 {rec['date']}")
+                            st.markdown("---")
+            else:
+                st.error("用户不存在")
+                del st.session_state.view_friend_id
+                st.rerun()
         
-        st.markdown("---")
-        st.markdown("### 📨 邀请朋友加入")
-        st.info("把你的邀请码发给朋友～")
-        st.code(current_user["invite_code"])
-        if current_user["id"] == 1:
-            st.caption("✨ 小卷的邀请码无限制")
         else:
-            remaining = current_user.get("remaining_invites", 10)
-            st.caption(f"✨ 还可邀请 {remaining} 位朋友")
+            # 显示好友列表
+            friends = get_friends(st.session_state.user_id)
+            
+            st.markdown("### 🍜 我的饭搭子们")
+            if len(friends) == 0:
+                st.info("🐯 还没有饭搭子，快邀请朋友加入吧！")
+            else:
+                for friend in friends:
+                    with st.container():
+                        col1, col2, col3, col4 = st.columns([1, 3, 2, 1])
+                        with col1:
+                            if friend.get("avatar"):
+                                st.image(friend["avatar"], width=60)
+                            else:
+                                st.markdown("## 🍜")
+                        with col2:
+                            st.markdown(f"### {get_user_display_name(friend)}")
+                            st.caption(f"@{friend['username']}")
+                        with col3:
+                            if friend.get("bio"):
+                                st.caption(f"📝 {friend['bio'][:50]}")
+                            else:
+                                st.caption("📝 暂无介绍")
+                        with col4:
+                            if st.button("查看主页", key=f"view_{friend['id']}"):
+                                st.session_state.view_friend_id = friend["id"]
+                                st.rerun()
+                            if st.button("❌ 删除", key=f"del_{friend['id']}"):
+                                remove_friend(st.session_state.user_id, friend['id'])
+                                st.rerun()
+                        st.markdown("---")
+            
+            # 搜索添加好友
+            st.markdown("### 🔍 寻找新朋友")
+            search_keyword = st.text_input("输入用户名或昵称搜索", placeholder="例如：小明")
+            if search_keyword:
+                results = search_users(search_keyword)
+                if results:
+                    st.markdown("#### 搜索结果")
+                    for user in results:
+                        col1, col2, col3 = st.columns([1, 3, 1])
+                        with col1:
+                            if user.get("avatar"):
+                                st.image(user["avatar"], width=50)
+                            else:
+                                st.markdown("🫂")
+                        with col2:
+                            st.markdown(f"**{get_user_display_name(user)}**")
+                            st.caption(f"@{user['username']}")
+                            if user.get("bio"):
+                                st.caption(user["bio"][:50])
+                        with col3:
+                            if st.button("查看主页", key=f"search_view_{user['id']}"):
+                                st.session_state.view_friend_id = user["id"]
+                                st.rerun()
+                        st.markdown("---")
+                else:
+                    st.info("未找到相关用户")
+            
+            st.markdown("---")
+            st.markdown("### 📨 邀请朋友加入")
+            st.info("把你的邀请码发给朋友～")
+            st.code(current_user["invite_code"])
+            if current_user["id"] == 1:
+                st.caption("✨ 小卷的邀请码无限制")
+            else:
+                remaining = current_user.get("remaining_invites", 10)
+                st.caption(f"✨ 还可邀请 {remaining} 位朋友")
     
     # ========== 个人中心 ==========
     elif page == "🐯 个人中心":
@@ -1081,7 +1188,6 @@ else:
         if st.button("💾 保存修改", use_container_width=True):
             updates = {}
             if new_avatar:
-                # 使用云端上传头像
                 avatar_url = upload_avatar(new_avatar, st.session_state.user_id)
                 updates["avatar"] = avatar_url
             if new_nickname:
@@ -1093,7 +1199,6 @@ else:
         
         st.markdown("---")
         
-        # ========== 修改密码 ==========
         st.markdown("### 🔐 修改密码")
         with st.form("change_password_form"):
             old_pw = st.text_input("当前密码", type="password")
