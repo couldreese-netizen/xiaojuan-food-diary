@@ -6,13 +6,14 @@ import datetime
 import random
 import re
 from zoneinfo import ZoneInfo
-import bcrypt  # 新增密码哈希
+import bcrypt
 from supabase_client import (
     get_all_users, get_user_by_id, get_user_by_username,
     get_user_by_invite_code, add_user, update_user,
     get_all_recommendations, add_recommendation, toggle_like,
     get_friends as supabase_get_friends, add_friend as supabase_add_friend,
-    delete_recommendation, update_recommendation
+    delete_recommendation, update_recommendation,
+    upload_avatar, upload_food_image  # 新增云端上传函数
 )
 
 # ========== 密码哈希辅助函数 ==========
@@ -24,7 +25,7 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
-# ========== 小卷语录库（你最新自定义版）==========
+# ========== 小卷语录库 ==========
 XIAOJUAN_SAYINGS = [
     "🐯 哇塞！看起来好美味～小卷也想吃！",
     "🧀 小卷闻到香味啦，快分享给好朋友！",
@@ -33,6 +34,7 @@ XIAOJUAN_SAYINGS = [
     "🤓 tori说今天奢侈一把！",
     "👀 oo老师说: 很Q弹！",
     "🥺 尾椎骨说：我不争！",
+    "😭 33说：站长快来修bug！",
     "🐯 嗷呜～这个推荐太棒了，小卷要偷偷收藏！",
     "🍊 桔桔说手里有个热乎的馍馍比什么都重要",
     "💛 和朋友一起吃饭最开心啦！",
@@ -53,50 +55,6 @@ def format_location(city, district):
     if district and district != "未填写" and district.strip():
         return f"{city} {district}"
     return city
-
-def safe_open_image(filepath, default_size=(200,200)):
-    try:
-        if filepath and os.path.exists(filepath):
-            img = Image.open(filepath)
-            img = ImageOps.exif_transpose(img)
-            return img
-        return None
-    except:
-        return None
-
-def save_avatar(uploaded_file, user_id):
-    if not os.path.exists("avatars"):
-        os.makedirs("avatars")
-    
-    img = Image.open(uploaded_file)
-    img = ImageOps.exif_transpose(img)
-    
-    width, height = img.size
-    if width != height:
-        size = min(width, height)
-        left = (width - size) // 2
-        top = (height - size) // 2
-        img = img.crop((left, top, left + size, top + size))
-    
-    img = img.resize((200, 200), Image.Resampling.LANCZOS)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"user_{user_id}_{timestamp}.jpg"
-    filepath = os.path.join("avatars", filename)
-    img.save(filepath, "JPEG", quality=85)
-    return filepath
-
-def save_image(uploaded_file, user_id, restaurant_name):
-    if not os.path.exists("uploads"):
-        os.makedirs("uploads")
-    
-    img = Image.open(uploaded_file)
-    img = ImageOps.exif_transpose(img)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    clean_name = "".join(c for c in restaurant_name if c.isalnum() or c in " _-")
-    filename = f"{user_id}_{timestamp}_{clean_name}.jpg"
-    filepath = os.path.join("uploads", filename)
-    img.save(filepath, "JPEG", quality=85)
-    return filepath
 
 def generate_invite_code(username):
     import random
@@ -119,7 +77,6 @@ def get_user_display_name(user):
 def add_initial_user_if_needed():
     users = get_all_users()
     if len(users) == 0:
-        # 小卷初始密码为 123456
         new_user = {
             "username": "xiaojuan",
             "nickname": "🐯 小卷 🧀",
@@ -203,7 +160,7 @@ img {border-radius: 50% !important;}
 </style>
 """, unsafe_allow_html=True)
 
-# ========== 自动登录（使用 localStorage 存储用户ID） ==========
+# ========== 自动登录 ==========
 if "logged_in" not in st.session_state or not st.session_state.logged_in:
     st.markdown("""
     <script>
@@ -338,16 +295,18 @@ if not st.session_state.logged_in:
                     all_users = get_all_users()
                     new_id = max([u["id"] for u in all_users], default=0) + 1
                     new_invite_code = generate_invite_code(new_username)
-                    avatar_path = None
+                    
+                    # 使用云端上传头像
+                    avatar_url = None
                     if new_avatar:
-                        avatar_path = save_avatar(new_avatar, new_id)
+                        avatar_url = upload_avatar(new_avatar, new_id)
                     
                     new_user = {
                         "id": new_id,
                         "username": new_username.lower(),
                         "nickname": new_nickname,
                         "invite_code": new_invite_code,
-                        "avatar": avatar_path,
+                        "avatar": avatar_url,
                         "friends": [inviter["id"]],
                         "bio": new_bio if new_bio else "🐯 新朋友，请多多关照~",
                         "remaining_invites": 10,
@@ -373,9 +332,9 @@ else:
     
     with st.sidebar:
         st.markdown("---")
-        avatar_img = safe_open_image(current_user.get("avatar"))
-        if avatar_img:
-            st.image(avatar_img, width=100)
+        # 显示头像（直接使用 URL）
+        if current_user.get("avatar"):
+            st.image(current_user["avatar"], width=100)
         else:
             st.markdown("## 🐯")
         st.markdown(f"### {get_user_display_name(current_user)}")
@@ -406,17 +365,6 @@ else:
             st.rerun()
         st.markdown("---")
         st.caption("🐯 每天都要好好吃饭哦~")
-    
-    # ========== 美食大王榜、今天吃啥捏、首页·美食广场、记录今日美食、我的饭搭子 部分与之前完全相同 ==========
-    # （此处省略，因为与原代码一致，只需保留原功能即可）
-    # 注意：个人中心里需要增加“修改密码”功能，见下方
-    
- 
-    
-    # 注意：其他页面（美食大王榜、今天吃啥捏、首页、记录美食、我的饭搭子）代码与之前完全相同，需保留。
-    # 为了节省篇幅，这里没有重复写出，但实际使用时必须把之前的完整代码接在后面。
-    # 由于最终回答长度限制，以上代码仅展示了修改的关键部分，实际你需要将原 app.py 中其他页面的代码原样粘贴到对应位置。import streamlit as st
-
     
     # ========== 美食大王榜 ==========
     if page == "🏆 美食大王榜":
@@ -478,9 +426,8 @@ else:
             user = stat["user"]
             col1, col2, col3 = st.columns([1, 3, 1])
             with col1:
-                avatar = safe_open_image(user.get("avatar"))
-                if avatar:
-                    st.image(avatar, width=40)
+                if user.get("avatar"):
+                    st.image(user["avatar"], width=40)
                 else:
                     st.markdown("🫂")
             with col2:
@@ -564,9 +511,8 @@ else:
                 
                 col_img, col_info = st.columns([1, 2])
                 with col_img:
-                    img = safe_open_image(rec.get("image_path"))
-                    if img:
-                        st.image(img, use_container_width=True)
+                    if rec.get("image_path"):
+                        st.image(rec["image_path"], use_container_width=True)
                     else:
                         type_icon = "🍱" if rec.get("food_type", "外卖吃啥") == "外卖吃啥" else "🍽️"
                         st.markdown(f"# {type_icon}")
@@ -674,13 +620,16 @@ else:
                 
                 col_avatar, col_name = st.columns([1, 5])
                 with col_avatar:
-                    avatar = None
                     if is_my:
-                        avatar = safe_open_image(current_user.get("avatar"))
+                        if current_user.get("avatar"):
+                            st.image(current_user["avatar"], width=40)
+                        else:
+                            st.markdown("🫂")
                     elif rec_user:
-                        avatar = safe_open_image(rec_user.get("avatar"))
-                    if avatar:
-                        st.image(avatar, width=40)
+                        if rec_user.get("avatar"):
+                            st.image(rec_user["avatar"], width=40)
+                        else:
+                            st.markdown("🫂")
                     else:
                         st.markdown("🫂")
                 with col_name:
@@ -715,9 +664,8 @@ else:
                         st.caption(f"📅 {rec['date']}")
                 
                 with col2:
-                    img = safe_open_image(rec.get("image_path"))
-                    if img:
-                        st.image(img, use_container_width=True)
+                    if rec.get("image_path"):
+                        st.image(rec["image_path"], use_container_width=True)
                     else:
                         st.caption("🐯 暂无图片")
                 
@@ -732,7 +680,7 @@ else:
                 
                 st.markdown("---")
                 
-                # 编辑和删除按钮（缩进已修复）
+                # 编辑和删除按钮
                 if is_my:
                     col1, col2 = st.columns([1, 1])
                     with col1:
@@ -740,7 +688,6 @@ else:
                             st.session_state.editing_rec = rec
                             st.rerun()
                     with col2:
-                        # 简化版删除按钮
                         if st.button("🗑️ 删除", key=f"delete_{rec['id']}"):
                             try:
                                 delete_recommendation(rec["id"])
@@ -763,22 +710,29 @@ else:
                     
                     friend_names = [get_user_display_name(f) for f in friends]
                     current_ate = rec_to_edit.get("ate_with", "")
-                    current_list = [x.strip() for x in current_ate.split(",") if x.strip()]
+                    current_list = [x.strip() for x in current_ate.split(",") if x.strip()] if current_ate else []
                     ate_opts = ["🐯 独自一人"] + friend_names
-                    ate_with = st.multiselect("和谁吃", ate_opts, default=current_list)
+                    # 过滤无效默认值
+                    valid_defaults = [x for x in current_list if x in ate_opts]
+                    ate_with = st.multiselect("和谁吃", ate_opts, default=valid_defaults)
                     ate_other = st.text_input("其他朋友（逗号分隔）")
                     manual = [x.strip() for x in ate_other.split(",") if x.strip()]
-                    ate_with += manual
+                    ate_with = ate_with + manual
                     
-                    img = safe_open_image(rec_to_edit.get("image_path"))
-                    if img:
-                        st.image(img, width=150, caption="当前图片")
-                        change = st.checkbox("更换图片")
+                    # 显示当前图片
+                    if rec_to_edit.get("image_path"):
+                        st.image(rec_to_edit["image_path"], width=150, caption="当前图片")
+                        change_photo = st.checkbox("更换图片")
                     else:
-                        change = True
+                        change_photo = True
+                    
                     new_img = None
-                    if change:
-                        new_img = st.file_uploader("上传新图", type=["jpg","png"])
+                    if change_photo:
+                        new_img = st.file_uploader("上传新图", type=["jpg","png"], key=f"edit_img_{rec_to_edit['id']}")
+                        if new_img:
+                            preview_img = Image.open(new_img)
+                            preview_img = ImageOps.exif_transpose(preview_img)
+                            st.image(preview_img, width=150, caption="新照片预览")
                     
                     new_reason = st.text_area("推荐理由", value=rec_to_edit.get("reason",""), height=100)
                     new_rating = st.slider("评分",1,5, value=rec_to_edit.get("rating",4))
@@ -799,8 +753,9 @@ else:
                             "tags": new_tags or "美食"
                         }
                         if new_img:
-                            path = save_image(new_img, st.session_state.user_id, rec_to_edit["restaurant"])
-                            updates["image_path"] = path
+                            # 使用云端上传
+                            new_img_url = upload_food_image(new_img, st.session_state.user_id, rec_to_edit["restaurant"])
+                            updates["image_path"] = new_img_url
                         update_recommendation(rec_to_edit["id"], updates)
                         st.success("✅ 更新成功")
                         del st.session_state.editing_rec
@@ -893,9 +848,10 @@ else:
                 if not restaurant or not city or not reason:
                     st.error("请填写店名、城市、理由")
                 else:
-                    img_path = None
+                    # 使用云端上传图片
+                    img_url = None
                     if uploaded_photo:
-                        img_path = save_image(uploaded_photo, st.session_state.user_id, restaurant)
+                        img_url = upload_food_image(uploaded_photo, st.session_state.user_id, restaurant)
                     
                     ate_str = ", ".join([a for a in ate_with if a != "🐯 独自一人"])
                     type_val = "外卖吃啥" if "外卖" in food_type else "奢侈一把"
@@ -922,7 +878,7 @@ else:
                         "reason": reason,
                         "tags": tags,
                         "date": now.strftime("%Y-%m-%d %H:%M"),
-                        "image_path": img_path,
+                        "image_path": img_url,
                         "ate_with": ate_str,
                         "food_type": type_val,
                         "likes": [],
@@ -952,9 +908,8 @@ else:
             for friend in friends:
                 col1, col2, col3 = st.columns([1, 3, 1])
                 with col1:
-                    avatar = safe_open_image(friend.get("avatar"))
-                    if avatar:
-                        st.image(avatar, width=60)
+                    if friend.get("avatar"):
+                        st.image(friend["avatar"], width=60)
                     else:
                         st.markdown("## 🍜")
                 with col2:
@@ -974,9 +929,8 @@ else:
                 for user in results:
                     col1, col2, col3 = st.columns([1, 3, 1])
                     with col1:
-                        avatar = safe_open_image(user.get("avatar"))
-                        if avatar:
-                            st.image(avatar, width=50)
+                        if user.get("avatar"):
+                            st.image(user["avatar"], width=50)
                         else:
                             st.markdown("🫂")
                     with col2:
@@ -998,9 +952,8 @@ else:
                 st.markdown(f"### 👤 {get_user_display_name(target_user)} 的主页")
                 col1, col2 = st.columns([1, 3])
                 with col1:
-                    avatar = safe_open_image(target_user.get("avatar"))
-                    if avatar:
-                        st.image(avatar, width=100)
+                    if target_user.get("avatar"):
+                        st.image(target_user["avatar"], width=100)
                     else:
                         st.markdown("## 🐯")
                 with col2:
@@ -1013,9 +966,8 @@ else:
                 st.markdown(f"#### 📝 美食日记 ({len(user_recs)}篇)")
                 for rec in user_recs[-5:]:
                     st.markdown(f"**{rec['restaurant']}** · {rec['city']} · {'⭐' * rec['rating']}")
-                    img = safe_open_image(rec.get("image_path"))
-                    if img:
-                        st.image(img, width=150)
+                    if rec.get("image_path"):
+                        st.image(rec["image_path"], width=150)
                     st.markdown("---")
                 
                 if target_id not in [f["id"] for f in friends] and target_id != st.session_state.user_id:
@@ -1042,7 +994,7 @@ else:
             remaining = current_user.get("remaining_invites", 10)
             st.caption(f"✨ 还可邀请 {remaining} 位朋友")
     
-        # ========== 个人中心 ==========
+    # ========== 个人中心 ==========
     elif page == "🐯 个人中心":
         st.header("🐯 个人中心")
         
@@ -1065,9 +1017,8 @@ else:
             for rec in my_recs[:5]:
                 col_img, col_info = st.columns([1,4])
                 with col_img:
-                    img = safe_open_image(rec.get("image_path"))
-                    if img:
-                        st.image(img, width=80)
+                    if rec.get("image_path"):
+                        st.image(rec["image_path"], width=80)
                     else:
                         st.markdown("🍽️")
                 with col_info:
@@ -1097,9 +1048,8 @@ else:
                 rec_user = get_user_by_id(rec["user_id"])
                 col_img, col_info = st.columns([1,2])
                 with col_img:
-                    img = safe_open_image(rec.get("image_path"))
-                    if img:
-                        st.image(img, use_container_width=True)
+                    if rec.get("image_path"):
+                        st.image(rec["image_path"], use_container_width=True)
                     else:
                         st.markdown("🍽️")
                 with col_info:
@@ -1114,9 +1064,8 @@ else:
         st.markdown("### 🐯 编辑我的小档案")
         col1, col2 = st.columns([1,2])
         with col1:
-            avatar = safe_open_image(current_user.get("avatar"))
-            if avatar:
-                st.image(avatar, width=100)
+            if current_user.get("avatar"):
+                st.image(current_user["avatar"], width=100)
             else:
                 st.markdown("## 🐯")
         with col2:
@@ -1132,14 +1081,9 @@ else:
         if st.button("💾 保存修改", use_container_width=True):
             updates = {}
             if new_avatar:
-                old_path = current_user.get("avatar")
-                if old_path and os.path.exists(old_path):
-                    try:
-                        os.remove(old_path)
-                    except:
-                        pass
-                path = save_avatar(new_avatar, st.session_state.user_id)
-                updates["avatar"] = path
+                # 使用云端上传头像
+                avatar_url = upload_avatar(new_avatar, st.session_state.user_id)
+                updates["avatar"] = avatar_url
             if new_nickname:
                 updates["nickname"] = new_nickname
             updates["bio"] = new_bio
